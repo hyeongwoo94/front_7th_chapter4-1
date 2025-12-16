@@ -4,6 +4,9 @@ import { NotFoundPage } from "./pages/index.js";
 import { cartStore, uiStore } from "./stores/index.js";
 import { generatePageTitle } from "./utils/titleUtils.js";
 import { prefetchHomePageData, dispatchHomePageData } from "./utils/serverDataUtils.js";
+import { ProductList, SearchBar } from "./components/index.js";
+import { PageWrapper } from "./pages/PageWrapper.js";
+import { filterProducts } from "./utils/productFilter.js";
 
 /**
  * 서버 사이드에서 라우트 매칭
@@ -281,7 +284,6 @@ export const render = async (url, query = {}) => {
 
           // 관련 상품 로드 (같은 category2 기준)
           if (detailProduct.category2) {
-            const { filterProducts } = await import("./utils/productFilter.js");
             const filteredRelated = filterProducts(items, {
               category2: detailProduct.category2,
               limit: 20,
@@ -339,9 +341,6 @@ export const render = async (url, query = {}) => {
 
       // HomePage의 실제 렌더링 로직 (임시)
       // TODO: HomePage 컴포넌트를 직접 호출할 수 있도록 리팩토링 필요
-      const { ProductList, SearchBar } = await import("./components/index.js");
-      const { PageWrapper } = await import("./pages/PageWrapper.js");
-
       pageHtml = PageWrapper({
         headerLeft: `
           <h1 class="text-xl font-bold text-gray-900">
@@ -368,8 +367,6 @@ export const render = async (url, query = {}) => {
       // ProductDetailPage 렌더링
       const productState = productStore.getState();
       const { currentProduct: product, relatedProducts = [], error, loading } = productState;
-
-      const { PageWrapper } = await import("./pages/PageWrapper.js");
 
       const loadingContent = `
         <div class="min-h-screen bg-gray-50 flex items-center justify-center">
