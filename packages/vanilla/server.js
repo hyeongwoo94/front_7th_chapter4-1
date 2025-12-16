@@ -31,120 +31,12 @@ async function initializeRender() {
   }
 }
 
-// API 라우트 설정 (MSW handlers 로직을 Express 라우트로 구현)
-async function setupAPIRoutes() {
-  if (prod) return; // 프로덕션에서는 실제 API 서버 사용
+// API는 app.use() 미들웨어에서 직접 처리하므로 별도의 라우트 등록이 필요 없습니다.
+// 이전에 사용하던 setupAPIRoutes() 함수는 제거되었습니다.
 
-  // handlers.js의 로직을 가져와서 Express 라우트로 구현
-  const { default: items } = await import("./src/mocks/items.json", { with: { type: "json" } });
-
-  const delay = async () => await new Promise((resolve) => setTimeout(resolve, 200));
-
-  // 카테고리 추출 함수
-  function getUniqueCategories() {
-    const categories = {};
-    items.forEach((item) => {
-      const cat1 = item.category1;
-      const cat2 = item.category2;
-      if (!categories[cat1]) categories[cat1] = {};
-      if (cat2 && !categories[cat1][cat2]) categories[cat1][cat2] = {};
-    });
-    return categories;
-  }
-
-  // 상품 검색 및 필터링 함수
-  function filterProducts(products, query) {
-    let filtered = [...products];
-    if (query.search) {
-      const searchTerm = query.search.toLowerCase();
-      filtered = filtered.filter(
-        (item) => item.title.toLowerCase().includes(searchTerm) || item.brand.toLowerCase().includes(searchTerm),
-      );
-    }
-    if (query.category1) {
-      filtered = filtered.filter((item) => item.category1 === query.category1);
-    }
-    if (query.category2) {
-      filtered = filtered.filter((item) => item.category2 === query.category2);
-    }
-    if (query.sort) {
-      switch (query.sort) {
-        case "price_asc":
-          filtered.sort((a, b) => parseInt(a.lprice) - parseInt(b.lprice));
-          break;
-        case "price_desc":
-          filtered.sort((a, b) => parseInt(b.lprice) - parseInt(a.lprice));
-          break;
-        case "name_asc":
-          filtered.sort((a, b) => a.title.localeCompare(b.title, "ko"));
-          break;
-        case "name_desc":
-          filtered.sort((a, b) => b.title.localeCompare(a.title, "ko"));
-          break;
-        default:
-          filtered.sort((a, b) => parseInt(a.lprice) - parseInt(b.lprice));
-      }
-    }
-    return filtered;
-  }
-
-  // 상품 목록 API
-  app.get("/api/products", async (req, res) => {
-    await delay();
-    const page = parseInt(req.query.page ?? req.query.current) || 1;
-    const limit = parseInt(req.query.limit) || 20;
-    const search = req.query.search || "";
-    const category1 = req.query.category1 || "";
-    const category2 = req.query.category2 || "";
-    const sort = req.query.sort || "price_asc";
-
-    const filteredProducts = filterProducts(items, { search, category1, category2, sort });
-    const startIndex = (page - 1) * limit;
-    const endIndex = startIndex + limit;
-    const paginatedProducts = filteredProducts.slice(startIndex, endIndex);
-
-    res.json({
-      products: paginatedProducts,
-      pagination: {
-        page,
-        limit,
-        total: filteredProducts.length,
-        totalPages: Math.ceil(filteredProducts.length / limit),
-        hasNext: endIndex < filteredProducts.length,
-        hasPrev: page > 1,
-      },
-      filters: { search, category1, category2, sort },
-    });
-  });
-
-  // 상품 상세 API
-  app.get("/api/products/:id", (req, res) => {
-    const { id } = req.params;
-    const product = items.find((item) => item.productId === id);
-
-    if (!product) {
-      return res.status(404).json({ error: "Product not found" });
-    }
-
-    const detailProduct = {
-      ...product,
-      description: `${product.title}에 대한 상세 설명입니다. ${product.brand} 브랜드의 우수한 품질을 자랑하는 상품으로, 고객 만족도가 높은 제품입니다.`,
-      rating: Math.floor(Math.random() * 2) + 4,
-      reviewCount: Math.floor(Math.random() * 1000) + 50,
-      stock: Math.floor(Math.random() * 100) + 10,
-      images: [product.image, product.image.replace(".jpg", "_2.jpg"), product.image.replace(".jpg", "_3.jpg")],
-    };
-
-    res.json(detailProduct);
-  });
-
-  // 카테고리 목록 API
-  app.get("/api/categories", async (req, res) => {
-    await delay();
-    const categories = getUniqueCategories();
-    res.json(categories);
-  });
-}
+// Express JSON 파서 미들웨어 추가 (API 요청 처리 전에)
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // 정적 파일 서빙 설정 (SSR 미들웨어보다 먼저 등록)
 if (prod) {
@@ -196,20 +88,159 @@ if (prod) {
   );
 }
 
-// API 라우트 설정 (개발 환경)
-await setupAPIRoutes();
-
 // 모든 라우트에 대해 SSR 처리 (Express 5.x 호환)
 // 정적 파일이 처리되지 않은 경우에만 SSR 실행
 app.use(async (req, res, next) => {
+  // 디버깅: 모든 요청 로그
+  console.log(`[Server] 요청 받음: ${req.method} ${req.path} (query: ${JSON.stringify(req.query)})`);
+
   // 정적 파일 요청은 건너뛰기
   if (req.path.startsWith("/src/") || req.path.startsWith("/public/")) {
     return next();
   }
 
-  // API 요청은 위에서 처리되므로 여기서는 건너뛰기
-  if (req.path.startsWith("/api/")) {
-    return next();
+  // API 요청을 직접 처리 (Express 라우트 등록 순서 문제 우회)
+  // 명세서에 따르면 /api/ prefix 없이 /products, /categories 사용
+  // 중요: 정확히 일치하는 경로만 처리 (SSR 라우트와 충돌 방지)
+  const isApiRequest =
+    (req.path === "/products" || req.path.startsWith("/products/") || req.path === "/categories") &&
+    req.method === "GET";
+
+  if (isApiRequest) {
+    console.log(`[Server] API 요청 감지: ${req.method} ${req.path}`);
+    try {
+      // items.json 로드 (캐싱)
+      if (!global.apiItems) {
+        const { default: items } = await import("./src/mocks/items.json", { with: { type: "json" } });
+        global.apiItems = items;
+      }
+      const items = global.apiItems;
+
+      const delay = async () => await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // 카테고리 추출 함수
+      function getUniqueCategories() {
+        const categories = {};
+        items.forEach((item) => {
+          const cat1 = item.category1;
+          const cat2 = item.category2;
+          if (!categories[cat1]) categories[cat1] = {};
+          if (cat2 && !categories[cat1][cat2]) categories[cat1][cat2] = {};
+        });
+        return categories;
+      }
+
+      // 상품 검색 및 필터링 함수
+      function filterProducts(products, query) {
+        let filtered = [...products];
+        if (query.search) {
+          const searchTerm = query.search.toLowerCase();
+          filtered = filtered.filter(
+            (item) => item.title.toLowerCase().includes(searchTerm) || item.brand.toLowerCase().includes(searchTerm),
+          );
+        }
+        if (query.category1) {
+          filtered = filtered.filter((item) => item.category1 === query.category1);
+        }
+        if (query.category2) {
+          filtered = filtered.filter((item) => item.category2 === query.category2);
+        }
+        if (query.sort) {
+          switch (query.sort) {
+            case "price_asc":
+              filtered.sort((a, b) => parseInt(a.lprice) - parseInt(b.lprice));
+              break;
+            case "price_desc":
+              filtered.sort((a, b) => parseInt(b.lprice) - parseInt(a.lprice));
+              break;
+            case "name_asc":
+              filtered.sort((a, b) => a.title.localeCompare(b.title, "ko"));
+              break;
+            case "name_desc":
+              filtered.sort((a, b) => b.title.localeCompare(a.title, "ko"));
+              break;
+            default:
+              filtered.sort((a, b) => parseInt(a.lprice) - parseInt(b.lprice));
+          }
+        }
+        return filtered;
+      }
+
+      // /products 처리
+      if (req.path === "/products" && req.method === "GET") {
+        console.log("[API Middleware] /products 요청 받음", req.query);
+        await delay();
+        const page = parseInt(req.query.page ?? req.query.current) || 1;
+        const limit = parseInt(req.query.limit) || 20;
+        const search = req.query.search || "";
+        const category1 = req.query.category1 || "";
+        const category2 = req.query.category2 || "";
+        const sort = req.query.sort || "price_asc";
+
+        const filteredProducts = filterProducts(items, { search, category1, category2, sort });
+        const startIndex = (page - 1) * limit;
+        const endIndex = startIndex + limit;
+        const paginatedProducts = filteredProducts.slice(startIndex, endIndex);
+
+        const responseData = {
+          products: paginatedProducts,
+          pagination: {
+            page,
+            limit,
+            total: filteredProducts.length,
+            totalPages: Math.ceil(filteredProducts.length / limit),
+            hasNext: endIndex < filteredProducts.length,
+            hasPrev: page > 1,
+          },
+          filters: { search, category1, category2, sort },
+        };
+
+        console.log("[API Middleware] /products 응답 전송:", JSON.stringify(responseData).substring(0, 100) + "...");
+        res.setHeader("Content-Type", "application/json");
+        return res.json(responseData);
+      }
+
+      // /products/:id 처리
+      const productIdMatch = req.path.match(/^\/products\/([^/]+)$/);
+      if (productIdMatch && req.method === "GET") {
+        const productId = productIdMatch[1];
+        console.log("[API Middleware] /products/:id 요청 받음", productId);
+        const product = items.find((item) => item.productId === productId);
+
+        if (!product) {
+          res.setHeader("Content-Type", "application/json");
+          return res.status(404).json({ error: "Product not found" });
+        }
+
+        const detailProduct = {
+          ...product,
+          description: `${product.title}에 대한 상세 설명입니다. ${product.brand} 브랜드의 우수한 품질을 자랑하는 상품으로, 고객 만족도가 높은 제품입니다.`,
+          rating: Math.floor(Math.random() * 2) + 4,
+          reviewCount: Math.floor(Math.random() * 1000) + 50,
+          stock: Math.floor(Math.random() * 100) + 10,
+          images: [product.image, product.image.replace(".jpg", "_2.jpg"), product.image.replace(".jpg", "_3.jpg")],
+        };
+
+        res.setHeader("Content-Type", "application/json");
+        return res.json(detailProduct);
+      }
+
+      // /categories 처리
+      if (req.path === "/categories" && req.method === "GET") {
+        console.log("[API Middleware] /categories 요청 받음");
+        await delay();
+        const categories = getUniqueCategories();
+        res.setHeader("Content-Type", "application/json");
+        return res.json(categories);
+      }
+
+      // 알 수 없는 API 엔드포인트
+      res.setHeader("Content-Type", "application/json");
+      return res.status(404).json({ error: "API endpoint not found", path: req.path });
+    } catch (error) {
+      console.error("[API Middleware] 오류:", error);
+      return res.status(500).json({ error: "Internal server error", message: error.message });
+    }
   }
 
   // render 함수가 아직 초기화되지 않았으면 초기화
@@ -226,9 +257,18 @@ app.use(async (req, res, next) => {
     const { html: appHtml, initialState } = await render(url, query);
 
     // HTML 템플릿에 삽입
+    const initialStateScript = `<script>window.__INITIAL_DATA__ = ${JSON.stringify(initialState || {})};</script>`;
     const html = template
       .replace("<!--app-html-->", appHtml || '<div id="root"></div>')
-      .replace("<!--app-head-->", `<script>window.__INITIAL_DATA__ = ${JSON.stringify(initialState || {})};</script>`);
+      .replace("<!--app-head-->", initialStateScript);
+
+    // 디버깅: initialState 확인
+    if (!initialState || !initialState.productStore) {
+      console.warn(`[SSR] 경고: initialState가 비어있거나 productStore가 없습니다.`);
+      console.warn(`  - initialState:`, initialState);
+    } else {
+      console.log(`[SSR] initialState 주입 완료 (productStore 포함)`);
+    }
 
     res.send(html);
   } catch (error) {
@@ -250,11 +290,20 @@ app.use(async (req, res, next) => {
 });
 
 // 서버 시작 전에 render 함수 초기화
+// API는 app.use() 미들웨어에서 직접 처리하므로 별도 초기화가 필요 없습니다.
 initializeRender()
   .then(() => {
     // Start http server
     app.listen(port, () => {
-      console.log(`Vanilla SSR Server started at http://localhost:${port}`);
+      console.log(`\n🚀 Vanilla SSR Server started at http://localhost:${port}`);
+      console.log(`📡 API routes (미들웨어에서 처리):`);
+      console.log(`   - GET /products`);
+      console.log(`   - GET /products/:id`);
+      console.log(`   - GET /categories`);
+      console.log(`\n📋 테스트 방법:`);
+      console.log(`   1. 브라우저에서: http://localhost:${port}/products`);
+      console.log(`   2. PowerShell: Invoke-WebRequest -Uri "http://localhost:${port}/products"`);
+      console.log(`   3. 홈페이지: http://localhost:${port}/\n`);
     });
   })
   .catch((error) => {

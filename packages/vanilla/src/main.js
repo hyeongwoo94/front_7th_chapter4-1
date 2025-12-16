@@ -9,12 +9,19 @@ import { PRODUCT_ACTIONS } from "./stores/actionTypes.js";
 
 const enableMocking = () =>
   import("./mocks/browser.js").then(({ worker }) =>
-    worker.start({
-      serviceWorker: {
-        url: `${BASE_URL}mockServiceWorker.js`,
-      },
-      onUnhandledRequest: "bypass",
-    }),
+    worker
+      .start({
+        serviceWorker: {
+          url: `${BASE_URL}mockServiceWorker.js`,
+        },
+        onUnhandledRequest: "bypass",
+      })
+      .then(() => {
+        console.log("[MSW] 워커가 시작되었습니다. API 요청을 intercept합니다.");
+      })
+      .catch((error) => {
+        console.error("[MSW] 워커 시작 실패:", error);
+      }),
   );
 
 /**
@@ -24,8 +31,17 @@ function hydrateStores() {
   // window.__INITIAL_DATA__에서 서버 상태 읽기
   const initialState = window.__INITIAL_DATA__ || {};
 
+  // 디버깅: window.__INITIAL_DATA__ 존재 여부 확인
+  if (typeof window.__INITIAL_DATA__ === "undefined") {
+    console.warn("[Hydration] window.__INITIAL_DATA__가 정의되지 않았습니다. CSR 모드로 동작합니다.");
+    console.warn("  - 서버 사이드 렌더링이 제대로 작동하지 않았을 수 있습니다.");
+    console.warn("  - 페이지를 새로고침하거나 서버를 확인해주세요.");
+    return;
+  }
+
   if (!initialState.productStore) {
-    console.warn("[Hydration] 서버에서 전달된 초기 상태가 없습니다. CSR 모드로 동작합니다.");
+    console.warn("[Hydration] 서버에서 전달된 초기 상태에 productStore가 없습니다. CSR 모드로 동작합니다.");
+    console.warn("  - initialState:", initialState);
     return;
   }
 

@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "vite --port 5173",
     "dev:ssr": "cross-env PORT=5174 node server.js",
-    "build:client": "rm -rf ./dist/vanilla && vite build --outDir ./dist/vanilla && cp ./dist/vanilla/index.html ./dist/vanilla/404.html",
-    "build:client-for-ssg": "rm -rf ../../dist/vanilla && vite build --outDir ../../dist/vanilla",
+    "build:client": "node -e \"const fs=require('fs');const path=require('path');const dist=path.join(process.cwd(),'dist','vanilla');if(fs.existsSync(dist))fs.rmSync(dist,{recursive:true,force:true});\" && vite build --outDir ./dist/vanilla && node -e \"const fs=require('fs');const path=require('path');const src=path.join(process.cwd(),'dist','vanilla','index.html');const dest=path.join(process.cwd(),'dist','vanilla','404.html');if(fs.existsSync(src))fs.copyFileSync(src,dest);\"",
+    "build:client-for-ssg": "node -e \"const fs=require('fs');const path=require('path');const dist=path.join(process.cwd(),'..','..','dist','vanilla');if(fs.existsSync(dist))fs.rmSync(dist,{recursive:true,force:true});\" && vite build --outDir ../../dist/vanilla",
     "build:server": "vite build --outDir ./dist/vanilla-ssr --ssr src/main-server.js",
     "build:ssg": "pnpm run build:client-for-ssg && node static-site-generate.js",
     "build:without-ssg": "pnpm run build:client && pnpm run build:server",
