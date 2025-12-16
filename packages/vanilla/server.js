@@ -3,6 +3,8 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import sirv from "sirv";
+import { filterProducts } from "./src/utils/productFilter.js";
+import { getUniqueCategories } from "./src/utils/categoryUtils.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -118,54 +120,6 @@ app.use(async (req, res, next) => {
 
       const delay = async () => await new Promise((resolve) => setTimeout(resolve, 200));
 
-      // 카테고리 추출 함수
-      function getUniqueCategories() {
-        const categories = {};
-        items.forEach((item) => {
-          const cat1 = item.category1;
-          const cat2 = item.category2;
-          if (!categories[cat1]) categories[cat1] = {};
-          if (cat2 && !categories[cat1][cat2]) categories[cat1][cat2] = {};
-        });
-        return categories;
-      }
-
-      // 상품 검색 및 필터링 함수
-      function filterProducts(products, query) {
-        let filtered = [...products];
-        if (query.search) {
-          const searchTerm = query.search.toLowerCase();
-          filtered = filtered.filter(
-            (item) => item.title.toLowerCase().includes(searchTerm) || item.brand.toLowerCase().includes(searchTerm),
-          );
-        }
-        if (query.category1) {
-          filtered = filtered.filter((item) => item.category1 === query.category1);
-        }
-        if (query.category2) {
-          filtered = filtered.filter((item) => item.category2 === query.category2);
-        }
-        if (query.sort) {
-          switch (query.sort) {
-            case "price_asc":
-              filtered.sort((a, b) => parseInt(a.lprice) - parseInt(b.lprice));
-              break;
-            case "price_desc":
-              filtered.sort((a, b) => parseInt(b.lprice) - parseInt(a.lprice));
-              break;
-            case "name_asc":
-              filtered.sort((a, b) => a.title.localeCompare(b.title, "ko"));
-              break;
-            case "name_desc":
-              filtered.sort((a, b) => b.title.localeCompare(a.title, "ko"));
-              break;
-            default:
-              filtered.sort((a, b) => parseInt(a.lprice) - parseInt(b.lprice));
-          }
-        }
-        return filtered;
-      }
-
       // /products 처리
       if (req.path === "/products" && req.method === "GET") {
         console.log("[API Middleware] /products 요청 받음", req.query);
@@ -229,7 +183,7 @@ app.use(async (req, res, next) => {
       if (req.path === "/categories" && req.method === "GET") {
         console.log("[API Middleware] /categories 요청 받음");
         await delay();
-        const categories = getUniqueCategories();
+        const categories = getUniqueCategories(items);
         res.setHeader("Content-Type", "application/json");
         return res.json(categories);
       }
@@ -248,28 +202,68 @@ app.use(async (req, res, next) => {
     await initializeRender();
   }
 
+  // 타임아웃 방지: render 함수에 타임아웃 설정
+  const renderWithTimeout = (url, query) => {
+    return Promise.race([
+      render(url, query),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("SSR 렌더링 타임아웃 (10초 초과)")), 10000)),
+    ]);
+  };
+
   try {
     // URL과 쿼리 파라미터 추출
     const url = req.url.split("?")[0];
     const query = req.query;
 
-    // 서버에서 렌더링
-    const { html: appHtml, initialState, title = "쇼핑몰" } = await render(url, query);
+    console.log(`[SSR] 요청 받음: ${req.method} ${req.url}`);
+
+    // 서버에서 렌더링 (타임아웃 적용)
+    const renderStartTime = Date.now();
+    const { html: appHtml, initialState, title = "쇼핑몰" } = await renderWithTimeout(url, query);
+    const renderDuration = Date.now() - renderStartTime;
+    console.log(`[SSR] 렌더링 완료 (${renderDuration}ms)`);
 
     // HTML 템플릿에 삽입
-    const initialStateScript = `<script>window.__INITIAL_DATA__ = ${JSON.stringify(initialState || {})};</script>`;
-    const html = template
-      .replace("<!--app-html-->", appHtml || '<div id="root"></div>')
-      .replace("<!--app-head-->", initialStateScript)
-      .replace("<!--app-title-->", title);
+    const initialStateJson = JSON.stringify(initialState || {});
+    const initialStateScript = `<script>window.__INITIAL_DATA__ = ${initialStateJson};</script>`;
 
-    // 디버깅: initialState 확인
+    // 디버깅: initialState 확인 및 검증
     if (!initialState || !initialState.productStore) {
       console.warn(`[SSR] 경고: initialState가 비어있거나 productStore가 없습니다.`);
       console.warn(`  - initialState:`, initialState);
     } else {
       console.log(`[SSR] initialState 주입 완료 (productStore 포함)`);
+      const productStore = initialState.productStore;
+      if (productStore.products && productStore.products.length > 0) {
+        console.log(`[SSR] ✅ products 배열 포함됨: ${productStore.products.length}개`);
+        console.log(`[SSR] 첫 번째 상품: ${productStore.products[0]?.title || "없음"}`);
+      } else {
+        console.error(`[SSR] ❌ products 배열이 비어있습니다.`);
+      }
     }
+
+    // JSON에 "products":[...] 형식이 포함되어 있는지 확인
+    if (!initialStateJson.includes('"products":[')) {
+      console.error(`[SSR] ❌ 오류: JSON에 "products":[...] 형식이 포함되지 않습니다.`);
+      console.error(`[SSR] JSON 길이: ${initialStateJson.length}`);
+      console.error(`[SSR] JSON 시작 부분: ${initialStateJson.substring(0, 200)}`);
+      if (initialState?.productStore) {
+        console.error(`[SSR] productStore 키: ${Object.keys(initialState.productStore).join(", ")}`);
+      }
+    } else {
+      console.log(`[SSR] ✅ JSON에 "products":[...] 형식 포함됨`);
+      // "products":[...] 위치 찾기
+      const productsIndex = initialStateJson.indexOf('"products":[');
+      console.log(`[SSR] "products":[...] 위치: ${productsIndex}`);
+      console.log(
+        `[SSR] "products":[...] 주변 텍스트: ${initialStateJson.substring(Math.max(0, productsIndex - 50), Math.min(initialStateJson.length, productsIndex + 200))}`,
+      );
+    }
+
+    const html = template
+      .replace("<!--app-html-->", appHtml || '<div id="root"></div>')
+      .replace("<!--app-head-->", initialStateScript)
+      .replace("<!--app-title-->", title);
 
     // JavaScript가 비활성화된 환경에서도 load 이벤트가 발생하도록
     // Content-Type과 Content-Length 헤더를 명시적으로 설정하여
@@ -278,10 +272,18 @@ app.use(async (req, res, next) => {
     res.setHeader("Content-Length", Buffer.byteLength(html, "utf-8"));
     // Connection: close 헤더를 설정하여 응답이 완료되었음을 명시
     res.setHeader("Connection", "close");
+
+    console.log(`[SSR] 응답 전송 시작 (HTML 길이: ${html.length} bytes)`);
     res.send(html);
+    console.log(`[SSR] 응답 전송 완료`);
   } catch (error) {
-    console.error("SSR 렌더링 오류:", error);
-    res.status(500).send(`
+    console.error("[SSR] 렌더링 오류:", error);
+    if (error.stack) {
+      console.error("[SSR] 에러 스택:", error.stack);
+    }
+
+    // 에러 응답도 헤더 설정하여 타임아웃 방지
+    const errorHtml = `
       <!DOCTYPE html>
       <html>
         <head>
@@ -293,7 +295,12 @@ app.use(async (req, res, next) => {
           <p>${error.message}</p>
         </body>
       </html>
-    `);
+    `;
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Content-Length", Buffer.byteLength(errorHtml, "utf-8"));
+    res.setHeader("Connection", "close");
+    res.status(500).send(errorHtml);
   }
 });
 

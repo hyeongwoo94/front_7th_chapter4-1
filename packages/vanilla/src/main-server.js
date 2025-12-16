@@ -1,10 +1,9 @@
-import { getProduct, getProducts } from "./api/productApi.js";
 import { productStore, initialProductState } from "./stores/productStore.js";
 import { PRODUCT_ACTIONS } from "./stores/actionTypes.js";
 import { NotFoundPage } from "./pages/index.js";
 import { cartStore, uiStore } from "./stores/index.js";
 import { generatePageTitle } from "./utils/titleUtils.js";
-import { filterProducts } from "./utils/productFilter.js";
+import { prefetchHomePageData, dispatchHomePageData } from "./utils/serverDataUtils.js";
 
 /**
  * 서버 사이드에서 라우트 매칭
@@ -21,22 +20,22 @@ function matchRoute(url, baseUrl) {
     pathname = "/" + pathname;
   }
 
-  // 홈페이지
+  // 홈페이지: / 경로
   if (pathname === "/" || pathname === "") {
-    return { path: "/", params: {}, handler: "HomePage" };
+    return { path: "/", params: {}, handler: "HomePage" }; // handler는 클라이언트 컴포넌트 이름과 일치
   }
 
-  // 상품 상세 페이지: /product/:id/
+  // 상품 상세 페이지: /product/:id/ 경로
   const productMatch = pathname.match(/^\/product\/([^/]+)\/?$/);
   if (productMatch) {
     return {
       path: "/product/:id/",
       params: { id: productMatch[1] },
-      handler: "ProductDetailPage",
+      handler: "ProductDetailPage", // handler는 클라이언트 컴포넌트 이름과 일치
     };
   }
 
-  // 404
+  // 404: 그 외 모든 경로
   return { path: null, params: {}, handler: "NotFoundPage" };
 }
 
@@ -204,119 +203,144 @@ export const render = async (url, query = {}) => {
 
     // 스토어 초기화 (매 요청마다 새로 생성)
     // 서버 사이드에서는 각 요청마다 깨끗한 상태로 시작
+    // 중요: 초기화 후 상태를 확인하여 제대로 초기화되었는지 검증
     productStore.dispatch({
       type: PRODUCT_ACTIONS.SETUP,
       payload: { ...initialProductState },
     });
 
+    // 초기화 검증
+    const initialStateAfterInit = productStore.getState();
+    if (initialStateAfterInit.products === undefined) {
+      console.error("[SSR] ❌ 오류: 스토어 초기화 후 products가 undefined입니다.");
+    }
+
     // cartStore와 uiStore는 초기 상태로 시작 (서버 사이드에서는 localStorage 없음)
     // 클라이언트에서 hydration 시 localStorage에서 복원됨
 
     // 라우트에 따라 데이터 프리페칭
+    // 중요: 모든 비동기 작업이 완료될 때까지 await하여 데이터가 완전히 로드되도록 보장
     if (route.handler === "HomePage") {
       // 홈페이지: 상품 목록과 카테고리 로드
       // SSR에서는 MSW 대신 items.json을 직접 로드하여 서버 API 미들웨어와 동일한 로직 사용
-      let productsData = [];
-      let categoriesData = {};
-      let totalCountValue = 0;
-
       try {
         console.log("[SSR] 데이터 프리페칭 시작 (직접 로드):", query);
 
         // items.json 직접 로드 (서버 API 미들웨어와 동일한 방식)
-        const { default: items } = await import("./mocks/items.json", { with: { type: "json" } });
+        // await을 명시적으로 사용하여 완료될 때까지 대기
+        const itemsModule = await import("./mocks/items.json", { with: { type: "json" } });
+        const items = itemsModule.default;
 
-        // 카테고리 추출 함수 (서버 API 미들웨어와 동일)
-        function getUniqueCategories() {
-          const categories = {};
-          items.forEach((item) => {
-            const cat1 = item.category1;
-            const cat2 = item.category2;
-            if (!categories[cat1]) categories[cat1] = {};
-            if (cat2 && !categories[cat1][cat2]) categories[cat1][cat2] = {};
-          });
-          return categories;
+        // 데이터가 로드되었는지 확인
+        if (!items || !Array.isArray(items) || items.length === 0) {
+          throw new Error("items.json이 비어있거나 유효하지 않습니다.");
         }
 
-        // 쿼리 파라미터 추출
-        const page = parseInt(query.page ?? query.current) || 1;
-        const limit = parseInt(query.limit) || 20;
-        const search = query.search || "";
-        const category1 = query.category1 || "";
-        const category2 = query.category2 || "";
-        const sort = query.sort || "price_asc";
+        console.log(`[SSR] items.json 로드 완료: ${items.length}개 상품`);
 
-        // 상품 필터링 (서버 API 미들웨어와 동일한 로직)
-        const filteredProducts = filterProducts(items, { search, category1, category2, sort });
-
-        // 페이지네이션
-        const startIndex = (page - 1) * limit;
-        const endIndex = startIndex + limit;
-        productsData = filteredProducts.slice(startIndex, endIndex);
-        totalCountValue = filteredProducts.length;
-        categoriesData = getUniqueCategories();
+        // 데이터 프리페칭 (공통 유틸리티 사용)
+        const prefetchData = prefetchHomePageData(query, items);
 
         console.log("[SSR] 데이터 프리페칭 완료:");
-        console.log(`  - 전체 상품: ${items.length}개`);
-        console.log(`  - 필터링된 상품: ${filteredProducts.length}개`);
-        console.log(`  - 페이지네이션된 상품: ${productsData.length}개`);
-        console.log(`  - totalCount: ${totalCountValue}`);
-        console.log(`  - 카테고리 개수: ${Object.keys(categoriesData).length}`);
+        console.log(`  - 전체 상품: ${prefetchData.totalItems}개`);
+        console.log(`  - 필터링된 상품: ${prefetchData.filteredCount}개`);
+        console.log(`  - 페이지네이션된 상품: ${prefetchData.products.length}개`);
+        console.log(`  - totalCount: ${prefetchData.totalCount}`);
+        console.log(`  - 카테고리 개수: ${Object.keys(prefetchData.categories).length}`);
 
-        productStore.dispatch({
-          type: PRODUCT_ACTIONS.SETUP,
-          payload: {
-            products: productsData,
-            categories: categoriesData,
-            totalCount: totalCountValue,
-            loading: false,
-            status: "done",
-          },
-        });
+        // 스토어에 디스패치 (동기 작업이지만 명시적으로 완료 보장)
+        dispatchHomePageData(productStore, prefetchData);
+
+        // 디스패치 후 상태 검증 (동기적으로 즉시 확인)
+        const stateAfterDispatch = productStore.getState();
+        if (!stateAfterDispatch.products || stateAfterDispatch.products.length === 0) {
+          console.error("[SSR] ❌ 오류: 디스패치 후 products가 비어있습니다.");
+          console.error(`  - prefetchData.products.length: ${prefetchData.products.length}`);
+          console.error(`  - stateAfterDispatch:`, JSON.stringify(stateAfterDispatch, null, 2));
+          throw new Error("데이터 디스패치 실패: products가 비어있습니다.");
+        } else {
+          console.log(`  ✅ 디스패치 성공: ${stateAfterDispatch.products.length}개 상품이 스토어에 저장됨`);
+        }
+
+        // 추가 검증: products 배열의 첫 번째 항목이 유효한지 확인
+        if (!stateAfterDispatch.products[0] || !stateAfterDispatch.products[0].title) {
+          console.error("[SSR] ❌ 오류: products 배열의 첫 번째 항목이 유효하지 않습니다.");
+          throw new Error("데이터 검증 실패: products 배열의 첫 번째 항목이 유효하지 않습니다.");
+        }
+
+        console.log(`[SSR] ✅ 데이터 프리페칭 및 검증 완료: ${stateAfterDispatch.products[0].title}`);
       } catch (error) {
         console.error("[SSR] 데이터 프리페칭 오류:", error);
         console.error("[SSR] 에러 스택:", error.stack);
 
         // 에러 발생 시에도 기본값 설정 (최소한 빈 상태로라도 렌더링)
-        productStore.dispatch({
-          type: PRODUCT_ACTIONS.SETUP,
-          payload: {
-            products: productsData,
-            categories: categoriesData,
-            totalCount: totalCountValue,
-            loading: false,
-            status: "done",
-            error: error.message || "데이터를 불러오는 중 오류가 발생했습니다.",
-          },
-        });
+        dispatchHomePageData(
+          productStore,
+          { products: [], categories: {}, totalCount: 0 },
+          { error: error.message || "데이터를 불러오는 중 오류가 발생했습니다." },
+        );
+        // 에러를 다시 throw하여 상위에서 처리할 수 있도록 함
+        throw error;
       }
     } else if (route.handler === "ProductDetailPage") {
       // 상품 상세 페이지: 상품 상세 정보 로드
+      // SSR에서는 MSW 대신 items.json을 직접 로드하여 서버 API 미들웨어와 동일한 로직 사용
       const productId = route.params.id;
-      const product = await getProduct(productId);
 
-      productStore.dispatch({
-        type: PRODUCT_ACTIONS.SET_CURRENT_PRODUCT,
-        payload: product,
-      });
+      try {
+        console.log(`[SSR] 상품 상세 데이터 프리페칭 시작 (ID: ${productId})`);
 
-      // 관련 상품 로드 (같은 category2 기준)
-      if (product.category2) {
-        try {
-          const relatedResponse = await getProducts({
-            category2: product.category2,
-            limit: 20,
-            page: 1,
-          });
-          const relatedProducts = relatedResponse.products.filter((p) => p.productId !== productId);
+        // items.json 직접 로드 (서버 API 미들웨어와 동일한 방식)
+        const { default: items } = await import("./mocks/items.json", { with: { type: "json" } });
+        const product = items.find((item) => item.productId === productId);
+
+        if (product) {
+          // 서버 API 미들웨어와 동일한 상세 정보 구성
+          const detailProduct = {
+            ...product,
+            description: `${product.title}에 대한 상세 설명입니다. ${product.brand} 브랜드의 우수한 품질을 자랑하는 상품으로, 고객 만족도가 높은 제품입니다.`,
+            rating: Math.floor(Math.random() * 2) + 4,
+            reviewCount: Math.floor(Math.random() * 1000) + 50,
+            stock: Math.floor(Math.random() * 100) + 10,
+            images: [product.image, product.image.replace(".jpg", "_2.jpg"), product.image.replace(".jpg", "_3.jpg")],
+          };
+
           productStore.dispatch({
-            type: PRODUCT_ACTIONS.SET_RELATED_PRODUCTS,
-            payload: relatedProducts,
+            type: PRODUCT_ACTIONS.SET_CURRENT_PRODUCT,
+            payload: detailProduct,
           });
-        } catch (error) {
-          // 관련 상품 로드 실패는 조용히 처리
-          console.error("관련 상품 로드 실패:", error);
+
+          // 관련 상품 로드 (같은 category2 기준)
+          if (detailProduct.category2) {
+            const { filterProducts } = await import("./utils/productFilter.js");
+            const filteredRelated = filterProducts(items, {
+              category2: detailProduct.category2,
+              limit: 20,
+              page: 1,
+            });
+            const relatedProducts = filteredRelated.filter((p) => p.productId !== productId);
+            productStore.dispatch({
+              type: PRODUCT_ACTIONS.SET_RELATED_PRODUCTS,
+              payload: relatedProducts,
+            });
+            console.log(`[SSR] 관련 상품 로드 완료: ${relatedProducts.length}개`);
+          }
+
+          console.log(`[SSR] 상품 상세 데이터 프리페칭 완료: ${detailProduct.title}`);
+        } else {
+          console.warn(`[SSR] 상품 ID ${productId}를 찾을 수 없습니다.`);
+          productStore.dispatch({
+            type: PRODUCT_ACTIONS.SET_ERROR,
+            payload: "상품을 찾을 수 없습니다.",
+          });
         }
+      } catch (error) {
+        console.error(`[SSR] 상품 상세 데이터 프리페칭 오류 (ID: ${productId}):`, error);
+        console.error(`[SSR] 에러 스택:`, error.stack);
+        productStore.dispatch({
+          type: PRODUCT_ACTIONS.SET_ERROR,
+          payload: error.message || "상품 상세 정보를 불러오는 중 오류가 발생했습니다.",
+        });
       }
     }
 
@@ -332,6 +356,7 @@ export const render = async (url, query = {}) => {
       let { products = [], loading = false, error = null, totalCount = 0, categories = {} } = productState;
 
       // SSR에서는 totalCount가 0이면 products.length를 사용 (최소한 "총 ... 개"가 렌더링되도록)
+      // 하지만 데이터가 없으면 0으로 유지 (테스트는 데이터가 있을 때를 가정)
       if (totalCount === 0 && products.length > 0) {
         console.warn("[SSR] ⚠️ 렌더링 시점에 totalCount가 0입니다. products.length로 보정합니다.");
         totalCount = products.length;
@@ -362,12 +387,11 @@ export const render = async (url, query = {}) => {
       console.log(`  - loading: ${loading}`);
       console.log(`  - error: ${error}`);
 
-      // SSR에서는 totalCount가 0이어도 "총 0개"를 표시해야 할 수 있지만,
-      // 테스트는 실제 데이터가 있을 때를 가정하므로, totalCount가 0이면 경고
-      if (totalCount === 0) {
-        console.warn("[SSR] ⚠️ totalCount가 0입니다. '총 ... 개' 텍스트가 렌더링되지 않을 수 있습니다.");
-        console.warn(`  - products.length: ${products.length}`);
-        console.warn(`  - error: ${error}`);
+      // SSR 초기 렌더링 검증: products와 totalCount가 있어야 함
+      if (products.length === 0 && totalCount === 0) {
+        console.error("[SSR] ❌ 오류: products와 totalCount가 모두 0입니다. 데이터 프리페칭이 실패했을 수 있습니다.");
+        console.error(`  - error: ${error}`);
+        console.error(`  - productState:`, JSON.stringify(productState, null, 2));
       }
 
       pageHtml = PageWrapper({
@@ -457,14 +481,27 @@ export const render = async (url, query = {}) => {
     }
 
     // 현재 스토어 상태를 initialState로 추출
+    // 중요: productStore를 첫 번째로 배치하여 JSON 직렬화 시 "productStore"가 먼저 나오도록 함
     const currentState = productStore.getState();
     const cartState = cartStore.getState();
     const uiState = uiStore.getState();
-    const initialState = {
-      productStore: currentState,
-      cartStore: cartState,
-      uiStore: uiState,
-    };
+
+    // productStore를 명시적으로 첫 번째로 배치 (JSON 직렬화 순서 보장)
+    // 또한 productStore 내부에서도 products가 첫 번째 속성이 되도록 보장
+    const productStoreState = {};
+    if (currentState.products !== undefined) productStoreState.products = currentState.products;
+    if (currentState.totalCount !== undefined) productStoreState.totalCount = currentState.totalCount;
+    if (currentState.categories !== undefined) productStoreState.categories = currentState.categories;
+    if (currentState.currentProduct !== undefined) productStoreState.currentProduct = currentState.currentProduct;
+    if (currentState.relatedProducts !== undefined) productStoreState.relatedProducts = currentState.relatedProducts;
+    if (currentState.loading !== undefined) productStoreState.loading = currentState.loading;
+    if (currentState.error !== undefined) productStoreState.error = currentState.error;
+    if (currentState.status !== undefined) productStoreState.status = currentState.status;
+
+    const initialState = {};
+    initialState.productStore = productStoreState;
+    initialState.cartStore = cartState;
+    initialState.uiStore = uiState;
 
     // 디버깅용 로그
     console.log(`[SSR] 라우트: ${route.path || "404"}`);
@@ -473,11 +510,31 @@ export const render = async (url, query = {}) => {
       console.log(`  - 상품 개수: ${currentState.products.length}`);
       console.log(`  - 전체 개수: ${currentState.totalCount}`);
       console.log(`  - 카테고리 개수: ${Object.keys(currentState.categories).length}`);
+
+      // SSR 초기 렌더링 검증: initialState에 products가 포함되어야 함
+      if (!currentState.products || currentState.products.length === 0) {
+        console.error("[SSR] ❌ 오류: initialState.productStore.products가 비어있습니다.");
+        console.error(`  - currentState:`, JSON.stringify(currentState, null, 2));
+      } else {
+        console.log(`  ✅ initialState.productStore.products[0]:`, currentState.products[0]?.title || "없음");
+      }
     } else if (route.handler === "ProductDetailPage") {
       console.log(`  - 상품 ID: ${currentState.currentProduct?.productId}`);
       console.log(`  - 관련 상품 개수: ${currentState.relatedProducts.length}`);
     }
     console.log(`[SSR] HTML 렌더링 완료 (길이: ${pageHtml.length})`);
+
+    // initialState 검증: window.__INITIAL_DATA__에 포함될 데이터 확인
+    const initialStateJson = JSON.stringify(initialState);
+    if (!initialStateJson.includes('"products":[')) {
+      console.error("[SSR] ❌ 오류: initialState에 'products':[...] 형식이 포함되지 않습니다.");
+      console.error(`  - initialState 구조:`, Object.keys(initialState));
+      if (initialState.productStore) {
+        console.error(`  - productStore 구조:`, Object.keys(initialState.productStore));
+      }
+    } else {
+      console.log(`  ✅ initialState에 'products':[...] 형식 포함됨`);
+    }
 
     // 페이지별 타이틀 결정
     const product = route.handler === "ProductDetailPage" ? productStore.getState().currentProduct : null;
