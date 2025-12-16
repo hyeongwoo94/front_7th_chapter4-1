@@ -426,13 +426,20 @@ export const render = async (url, query = {}) => {
     }
 
     // 현재 스토어 상태를 initialState로 추출
-    // 중요: productStore를 첫 번째로 배치하여 JSON 직렬화 시 "productStore"가 먼저 나오도록 함
     const currentState = productStore.getState();
     const cartState = cartStore.getState();
     const uiState = uiStore.getState();
 
-    // productStore를 명시적으로 첫 번째로 배치 (JSON 직렬화 순서 보장)
-    // 또한 productStore 내부에서도 products가 첫 번째 속성이 되도록 보장
+    // 테스트가 기대하는 형식: 최상위 레벨에 products, categories, totalCount
+    // 클라이언트 호환성을 위해 productStore 구조도 유지
+    const initialState = {};
+
+    // 테스트 형식: 최상위 레벨에 직접 배치 (products가 첫 번째 속성이 되도록)
+    if (currentState.products !== undefined) initialState.products = currentState.products;
+    if (currentState.categories !== undefined) initialState.categories = currentState.categories;
+    if (currentState.totalCount !== undefined) initialState.totalCount = currentState.totalCount;
+
+    // 클라이언트 호환성을 위한 기존 구조도 유지
     const productStoreState = {};
     if (currentState.products !== undefined) productStoreState.products = currentState.products;
     if (currentState.totalCount !== undefined) productStoreState.totalCount = currentState.totalCount;
@@ -443,7 +450,6 @@ export const render = async (url, query = {}) => {
     if (currentState.error !== undefined) productStoreState.error = currentState.error;
     if (currentState.status !== undefined) productStoreState.status = currentState.status;
 
-    const initialState = {};
     initialState.productStore = productStoreState;
     initialState.cartStore = cartState;
     initialState.uiStore = uiState;
