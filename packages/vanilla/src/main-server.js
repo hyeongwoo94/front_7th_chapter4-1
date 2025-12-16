@@ -4,6 +4,7 @@ import { productStore, initialProductState } from "./stores/productStore.js";
 import { PRODUCT_ACTIONS } from "./stores/actionTypes.js";
 import { NotFoundPage } from "./pages/index.js";
 import { cartStore, uiStore } from "./stores/index.js";
+import { generatePageTitle } from "./utils/titleUtils.js";
 
 // MSW 서버 초기화 (한 번만 실행)
 let mswInitialized = false;
@@ -396,17 +397,8 @@ export const render = async (url, query = {}) => {
     console.log(`[SSR] HTML 렌더링 완료 (길이: ${pageHtml.length})`);
 
     // 페이지별 타이틀 결정
-    let title = "쇼핑몰"; // 기본값
-    if (route.handler === "ProductDetailPage") {
-      const product = productStore.getState().currentProduct;
-      if (product && product.title) {
-        title = product.title;
-      }
-    } else if (route.handler === "HomePage") {
-      title = "쇼핑몰";
-    } else if (route.handler === "NotFoundPage") {
-      title = "페이지를 찾을 수 없습니다 - 쇼핑몰";
-    }
+    const product = route.handler === "ProductDetailPage" ? productStore.getState().currentProduct : null;
+    const title = generatePageTitle(route.handler, product);
 
     return {
       html: pageHtml,
@@ -415,9 +407,13 @@ export const render = async (url, query = {}) => {
     };
   } catch (error) {
     console.error("서버 렌더링 오류:", error);
+    if (error.stack) {
+      console.error("에러 스택:", error.stack);
+    }
     return {
       html: '<div class="p-4 text-red-600">서버 렌더링 중 오류가 발생했습니다.</div>',
       initialState: {},
+      title: "서버 오류 - 쇼핑몰",
     };
   }
 };
