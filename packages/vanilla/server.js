@@ -271,6 +271,13 @@ app.use(async (req, res, next) => {
       console.log(`[SSR] initialState 주입 완료 (productStore 포함)`);
     }
 
+    // JavaScript가 비활성화된 환경에서도 load 이벤트가 발생하도록
+    // Content-Type과 Content-Length 헤더를 명시적으로 설정하여
+    // 브라우저가 응답이 완료되었음을 알 수 있도록 함
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Content-Length", Buffer.byteLength(html, "utf-8"));
+    // Connection: close 헤더를 설정하여 응답이 완료되었음을 명시
+    res.setHeader("Connection", "close");
     res.send(html);
   } catch (error) {
     console.error("SSR 렌더링 오류:", error);
