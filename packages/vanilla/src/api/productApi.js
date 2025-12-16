@@ -32,7 +32,6 @@ export async function getProducts(params = {}) {
   // URL 생성: 서버 사이드에서는 절대 URL, 클라이언트 사이드에서는 상대 경로
   const url = baseUrl ? `${baseUrl}/products?${searchParams}` : `/products?${searchParams}`; // 클라이언트 사이드: 상대 경로 (MSW가 intercept)
 
-  console.log(`[productApi] getProducts 요청: ${url}`);
   const response = await fetch(url);
 
   if (!response.ok) {
@@ -55,7 +54,6 @@ export async function getProduct(productId) {
   const baseUrl = getBaseUrl();
   const url = baseUrl ? `${baseUrl}/products/${productId}` : `/products/${productId}`; // 클라이언트 사이드: 상대 경로 (MSW가 intercept)
 
-  console.log(`[productApi] getProduct 요청: ${url}`);
   const response = await fetch(url);
 
   if (!response.ok) {
@@ -72,7 +70,6 @@ export async function getProduct(productId) {
   }
 
   const data = await response.json();
-  console.log(`[productApi] getProduct 응답 받음:`, data.title || "데이터 없음");
   return data;
 }
 

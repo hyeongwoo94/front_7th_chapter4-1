@@ -36,11 +36,6 @@ function updatePageTitle() {
   // 타이틀이 변경된 경우에만 업데이트 (불필요한 DOM 조작 방지)
   if (document.title !== title) {
     document.title = title;
-    // 디버깅: 타이틀 업데이트 로그
-    if (route?.handler === "ProductDetailPage") {
-      console.log(`[Title] updatePageTitle에서 업데이트: ${title}`);
-      console.log(`[Title] 현재 document.title: ${document.title}`);
-    }
   }
 }
 

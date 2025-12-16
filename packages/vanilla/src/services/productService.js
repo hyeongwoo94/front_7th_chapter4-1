@@ -153,8 +153,6 @@ export const loadProductDetailForPage = async (productId) => {
       // 관련 상품 로드가 완료된 후에도 타이틀을 다시 확인하도록 더 긴 지연 시간 사용
       setTimeout(() => {
         document.title = product.title;
-        console.log(`[Title] 상품 설정 후 타이틀 업데이트: ${product.title}`);
-        console.log(`[Title] 현재 document.title 확인: ${document.title}`);
       }, 50);
     }
 
@@ -168,7 +166,6 @@ export const loadProductDetailForPage = async (productId) => {
       setTimeout(() => {
         if (document.title !== product.title) {
           document.title = product.title;
-          console.log(`[Title] 관련 상품 로드 후 타이틀 재설정: ${product.title}`);
         }
       }, 100);
     }

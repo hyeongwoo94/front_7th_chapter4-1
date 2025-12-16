@@ -93,9 +93,6 @@ if (prod) {
 // 모든 라우트에 대해 SSR 처리 (Express 5.x 호환)
 // 정적 파일이 처리되지 않은 경우에만 SSR 실행
 app.use(async (req, res, next) => {
-  // 디버깅: 모든 요청 로그
-  console.log(`[Server] 요청 받음: ${req.method} ${req.path} (query: ${JSON.stringify(req.query)})`);
-
   // 정적 파일 요청은 건너뛰기
   if (req.path.startsWith("/src/") || req.path.startsWith("/public/")) {
     return next();
@@ -109,7 +106,6 @@ app.use(async (req, res, next) => {
     req.method === "GET";
 
   if (isApiRequest) {
-    console.log(`[Server] API 요청 감지: ${req.method} ${req.path}`);
     try {
       // items.json 로드 (캐싱)
       if (!global.apiItems) {
@@ -122,7 +118,6 @@ app.use(async (req, res, next) => {
 
       // /products 처리
       if (req.path === "/products" && req.method === "GET") {
-        console.log("[API Middleware] /products 요청 받음", req.query);
         await delay();
         const page = parseInt(req.query.page ?? req.query.current) || 1;
         const limit = parseInt(req.query.limit) || 20;
@@ -149,7 +144,6 @@ app.use(async (req, res, next) => {
           filters: { search, category1, category2, sort },
         };
 
-        console.log("[API Middleware] /products 응답 전송:", JSON.stringify(responseData).substring(0, 100) + "...");
         res.setHeader("Content-Type", "application/json");
         return res.json(responseData);
       }
@@ -158,7 +152,6 @@ app.use(async (req, res, next) => {
       const productIdMatch = req.path.match(/^\/products\/([^/]+)$/);
       if (productIdMatch && req.method === "GET") {
         const productId = productIdMatch[1];
-        console.log("[API Middleware] /products/:id 요청 받음", productId);
         const product = items.find((item) => item.productId === productId);
 
         if (!product) {
@@ -181,7 +174,6 @@ app.use(async (req, res, next) => {
 
       // /categories 처리
       if (req.path === "/categories" && req.method === "GET") {
-        console.log("[API Middleware] /categories 요청 받음");
         await delay();
         const categories = getUniqueCategories(items);
         res.setHeader("Content-Type", "application/json");
@@ -215,50 +207,12 @@ app.use(async (req, res, next) => {
     const url = req.url.split("?")[0];
     const query = req.query;
 
-    console.log(`[SSR] 요청 받음: ${req.method} ${req.url}`);
-
     // 서버에서 렌더링 (타임아웃 적용)
-    const renderStartTime = Date.now();
     const { html: appHtml, initialState, title = "쇼핑몰" } = await renderWithTimeout(url, query);
-    const renderDuration = Date.now() - renderStartTime;
-    console.log(`[SSR] 렌더링 완료 (${renderDuration}ms)`);
 
     // HTML 템플릿에 삽입
     const initialStateJson = JSON.stringify(initialState || {});
     const initialStateScript = `<script>window.__INITIAL_DATA__ = ${initialStateJson};</script>`;
-
-    // 디버깅: initialState 확인 및 검증
-    if (!initialState || !initialState.productStore) {
-      console.warn(`[SSR] 경고: initialState가 비어있거나 productStore가 없습니다.`);
-      console.warn(`  - initialState:`, initialState);
-    } else {
-      console.log(`[SSR] initialState 주입 완료 (productStore 포함)`);
-      const productStore = initialState.productStore;
-      if (productStore.products && productStore.products.length > 0) {
-        console.log(`[SSR] ✅ products 배열 포함됨: ${productStore.products.length}개`);
-        console.log(`[SSR] 첫 번째 상품: ${productStore.products[0]?.title || "없음"}`);
-      } else {
-        console.error(`[SSR] ❌ products 배열이 비어있습니다.`);
-      }
-    }
-
-    // JSON에 "products":[...] 형식이 포함되어 있는지 확인
-    if (!initialStateJson.includes('"products":[')) {
-      console.error(`[SSR] ❌ 오류: JSON에 "products":[...] 형식이 포함되지 않습니다.`);
-      console.error(`[SSR] JSON 길이: ${initialStateJson.length}`);
-      console.error(`[SSR] JSON 시작 부분: ${initialStateJson.substring(0, 200)}`);
-      if (initialState?.productStore) {
-        console.error(`[SSR] productStore 키: ${Object.keys(initialState.productStore).join(", ")}`);
-      }
-    } else {
-      console.log(`[SSR] ✅ JSON에 "products":[...] 형식 포함됨`);
-      // "products":[...] 위치 찾기
-      const productsIndex = initialStateJson.indexOf('"products":[');
-      console.log(`[SSR] "products":[...] 위치: ${productsIndex}`);
-      console.log(
-        `[SSR] "products":[...] 주변 텍스트: ${initialStateJson.substring(Math.max(0, productsIndex - 50), Math.min(initialStateJson.length, productsIndex + 200))}`,
-      );
-    }
 
     const html = template
       .replace("<!--app-html-->", appHtml || '<div id="root"></div>')
@@ -273,9 +227,7 @@ app.use(async (req, res, next) => {
     // Connection: close 헤더를 설정하여 응답이 완료되었음을 명시
     res.setHeader("Connection", "close");
 
-    console.log(`[SSR] 응답 전송 시작 (HTML 길이: ${html.length} bytes)`);
     res.send(html);
-    console.log(`[SSR] 응답 전송 완료`);
   } catch (error) {
     console.error("[SSR] 렌더링 오류:", error);
     if (error.stack) {
