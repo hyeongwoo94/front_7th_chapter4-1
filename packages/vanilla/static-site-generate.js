@@ -35,8 +35,17 @@ async function generateStaticSite() {
     fs.mkdirSync(outputDir, { recursive: true });
   }
 
-  // HTML 템플릿 읽기
-  const template = fs.readFileSync(templatePath, "utf-8");
+  // 빌드된 HTML 템플릿 읽기 (Vite가 번들된 스크립트 경로로 업데이트한 것)
+  const builtTemplatePath = path.join(outputDir, "index.html");
+  let template;
+  if (fs.existsSync(builtTemplatePath)) {
+    template = fs.readFileSync(builtTemplatePath, "utf-8");
+    console.log("✅ 빌드된 HTML 템플릿 사용");
+  } else {
+    // 빌드된 템플릿이 없으면 원본 사용 (fallback)
+    template = fs.readFileSync(templatePath, "utf-8");
+    console.warn("⚠️  빌드된 HTML 템플릿을 찾을 수 없어 원본 템플릿 사용");
+  }
 
   try {
     // 1. 홈페이지 생성
