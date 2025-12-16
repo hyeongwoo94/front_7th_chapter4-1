@@ -254,13 +254,14 @@ app.use(async (req, res, next) => {
     const query = req.query;
 
     // 서버에서 렌더링
-    const { html: appHtml, initialState } = await render(url, query);
+    const { html: appHtml, initialState, title = "쇼핑몰" } = await render(url, query);
 
     // HTML 템플릿에 삽입
     const initialStateScript = `<script>window.__INITIAL_DATA__ = ${JSON.stringify(initialState || {})};</script>`;
     const html = template
       .replace("<!--app-html-->", appHtml || '<div id="root"></div>')
-      .replace("<!--app-head-->", initialStateScript);
+      .replace("<!--app-head-->", initialStateScript)
+      .replace("<!--app-title-->", title);
 
     // 디버깅: initialState 확인
     if (!initialState || !initialState.productStore) {

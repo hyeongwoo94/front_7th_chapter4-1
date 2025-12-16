@@ -147,6 +147,16 @@ export const loadProductDetailForPage = async (productId) => {
       payload: product,
     });
 
+    // 타이틀 업데이트 (명시적으로 호출, 비동기로 처리하여 render() 이후에 실행되도록)
+    if (typeof document !== "undefined" && product && product.title) {
+      // setTimeout을 사용하여 배치 처리 이후에 실행되도록 보장
+      setTimeout(() => {
+        document.title = product.title;
+        console.log(`[Title] 상품 설정 후 타이틀 업데이트: ${product.title}`);
+        console.log(`[Title] 현재 document.title 확인: ${document.title}`);
+      }, 0);
+    }
+
     // 관련 상품 로드 (같은 category2 기준)
     if (product.category2) {
       await loadRelatedProducts(product.category2, productId);

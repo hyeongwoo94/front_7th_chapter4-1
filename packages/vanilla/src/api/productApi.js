@@ -54,8 +54,26 @@ export async function getProducts(params = {}) {
 export async function getProduct(productId) {
   const baseUrl = getBaseUrl();
   const url = baseUrl ? `${baseUrl}/products/${productId}` : `/products/${productId}`; // 클라이언트 사이드: 상대 경로 (MSW가 intercept)
+
+  console.log(`[productApi] getProduct 요청: ${url}`);
   const response = await fetch(url);
-  return await response.json();
+
+  if (!response.ok) {
+    const text = await response.text();
+    console.error(`[productApi] getProduct 오류: ${response.status} ${response.statusText}`, text.substring(0, 200));
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const contentType = response.headers.get("content-type");
+  if (!contentType || !contentType.includes("application/json")) {
+    const text = await response.text();
+    console.error(`[productApi] getProduct 오류: JSON이 아닌 응답`, text.substring(0, 200));
+    throw new Error(`Expected JSON but got ${contentType}`);
+  }
+
+  const data = await response.json();
+  console.log(`[productApi] getProduct 응답 받음:`, data.title || "데이터 없음");
+  return data;
 }
 
 export async function getCategories() {
