@@ -150,16 +150,27 @@ export const loadProductDetailForPage = async (productId) => {
     // 타이틀 업데이트 (명시적으로 호출, 비동기로 처리하여 render() 이후에 실행되도록)
     if (typeof document !== "undefined" && product && product.title) {
       // setTimeout을 사용하여 배치 처리 이후에 실행되도록 보장
+      // 관련 상품 로드가 완료된 후에도 타이틀을 다시 확인하도록 더 긴 지연 시간 사용
       setTimeout(() => {
         document.title = product.title;
         console.log(`[Title] 상품 설정 후 타이틀 업데이트: ${product.title}`);
         console.log(`[Title] 현재 document.title 확인: ${document.title}`);
-      }, 0);
+      }, 50);
     }
 
     // 관련 상품 로드 (같은 category2 기준)
     if (product.category2) {
       await loadRelatedProducts(product.category2, productId);
+    }
+
+    // 관련 상품 로드 후에도 타이틀 재확인 (덮어써지지 않도록)
+    if (typeof document !== "undefined" && product && product.title) {
+      setTimeout(() => {
+        if (document.title !== product.title) {
+          document.title = product.title;
+          console.log(`[Title] 관련 상품 로드 후 타이틀 재설정: ${product.title}`);
+        }
+      }, 100);
     }
   } catch (error) {
     console.error("상품 상세 페이지 로드 실패:", error);

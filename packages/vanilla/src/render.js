@@ -25,8 +25,9 @@ function updatePageTitle() {
     if (product && product.title) {
       title = product.title;
     } else {
-      // 상품이 아직 로드되지 않았을 때는 기본 타이틀 사용
-      title = "상품 상세 - 쇼핑몰";
+      // 상품이 아직 로드되지 않았을 때는 타이틀을 변경하지 않음
+      // (이미 설정된 타이틀을 유지)
+      return;
     }
   } else if (route?.handler === "NotFoundPage") {
     title = "페이지를 찾을 수 없습니다 - 쇼핑몰";
@@ -37,7 +38,8 @@ function updatePageTitle() {
     document.title = title;
     // 디버깅: 타이틀 업데이트 로그
     if (route?.handler === "ProductDetailPage") {
-      console.log(`[Title] 업데이트: ${title}`);
+      console.log(`[Title] updatePageTitle에서 업데이트: ${title}`);
+      console.log(`[Title] 현재 document.title: ${document.title}`);
     }
   }
 }
@@ -56,9 +58,11 @@ export const render = withBatch(() => {
 
   // 렌더링 후 타이틀 업데이트 (렌더링 이후에 실행되도록 보장)
   // queueMicrotask 이후에 실행되도록 setTimeout 사용
+  // 상품 상세 페이지일 때는 더 긴 지연 시간 사용 (상품 데이터 로드 대기)
+  const delay = router.route?.handler === "ProductDetailPage" ? 10 : 0;
   setTimeout(() => {
     updatePageTitle();
-  }, 0);
+  }, delay);
 });
 
 /**
