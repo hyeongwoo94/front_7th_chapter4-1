@@ -40,17 +40,18 @@ async function initializeRender() {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// 정적 파일 서빙 설정 (SSR 미들웨어보다 먼저 등록)
+// 정적 파일 서빙 설정
+// 중요: HTML 파일은 SSR로 처리해야 하므로, 정적 파일은 /assets 경로에만 적용
 if (prod) {
-  // 프로덕션: 빌드된 파일 서빙
+  // 프로덕션: 빌드된 파일 서빙 (assets 폴더만)
   const distPath = path.join(__dirname, "dist/vanilla");
-  // 디렉토리가 존재하는 경우에만 정적 파일 서빙
   if (fs.existsSync(distPath)) {
+    // /assets 경로에만 정적 파일 서빙 적용 (HTML 파일 제외)
     app.use(
-      base,
-      sirv(distPath, {
+      base + "assets",
+      sirv(path.join(distPath, "assets"), {
         dev: false,
-        onNoMatch: (req, res, next) => next(), // 파일이 없으면 다음 미들웨어로
+        onNoMatch: (req, res) => res.status(404).end(),
       }),
     );
   } else {
@@ -92,9 +93,14 @@ if (prod) {
 
 // 모든 라우트에 대해 SSR 처리 (Express 5.x 호환)
 // 정적 파일이 처리되지 않은 경우에만 SSR 실행
-app.use(async (req, res, next) => {
-  // 정적 파일 요청은 건너뛰기
+const ssrMiddleware = async (req, res, next) => {
+  // 정적 파일 요청은 건너뛰기 (개발 모드용)
   if (req.path.startsWith("/src/") || req.path.startsWith("/public/")) {
+    return next();
+  }
+
+  // 프로덕션 모드: /assets 요청은 이미 정적 파일 미들웨어에서 처리됨
+  if (prod && req.path.startsWith("/assets/")) {
     return next();
   }
 
@@ -204,20 +210,36 @@ app.use(async (req, res, next) => {
 
   try {
     // URL과 쿼리 파라미터 추출
-    const url = req.url.split("?")[0];
+    // req.originalUrl은 원본 URL (base 경로 포함)
+    // req.path는 Express가 파싱한 경로 (쿼리 제외)
+    // sirv 미들웨어는 base 경로를 제거하지 않으므로, req.path는 여전히 base 경로를 포함할 수 있음
+    // 따라서 원본 URL을 사용하여 base 경로를 포함한 전체 경로를 전달
+    const url = req.originalUrl?.split("?")[0] || req.url.split("?")[0];
     const query = req.query;
 
     // 서버에서 렌더링 (타임아웃 적용)
-    const { html: appHtml, initialState, title = "쇼핑몰" } = await renderWithTimeout(url, query);
+    const renderResult = await renderWithTimeout(url, query);
+    if (!renderResult) {
+      throw new Error("render 함수가 결과를 반환하지 않았습니다.");
+    }
+
+    const { html: appHtml = "", initialState = {}, title = "쇼핑몰" } = renderResult;
+
+    // appHtml이 비어있으면 기본값 사용
+    const finalAppHtml = appHtml && appHtml.trim().length > 0 ? appHtml : '<div id="root"></div>';
 
     // HTML 템플릿에 삽입
-    const initialStateJson = JSON.stringify(initialState || {});
+    const initialStateJson = JSON.stringify(initialState);
     const initialStateScript = `<script>window.__INITIAL_DATA__ = ${initialStateJson};</script>`;
 
-    const html = template
-      .replace("<!--app-html-->", appHtml || '<div id="root"></div>')
-      .replace("<!--app-head-->", initialStateScript)
-      .replace("<!--app-title-->", title);
+    // 템플릿 치환 (플레이스홀더가 있는지 확인 후 치환)
+    let html = template;
+    if (!html.includes("<!--app-html-->")) {
+      throw new Error("템플릿에 <!--app-html--> 플레이스홀더가 없습니다. 템플릿 경로: " + templatePath);
+    }
+    html = html.replace("<!--app-html-->", finalAppHtml);
+    html = html.replace("<!--app-head-->", initialStateScript);
+    html = html.replace("<!--app-title-->", title);
 
     // JavaScript가 비활성화된 환경에서도 load 이벤트가 발생하도록
     // Content-Type과 Content-Length 헤더를 명시적으로 설정하여
@@ -254,7 +276,15 @@ app.use(async (req, res, next) => {
     res.setHeader("Connection", "close");
     res.status(500).send(errorHtml);
   }
-});
+};
+
+// 프로덕션 모드에서는 base 경로에 SSR 미들웨어 등록
+// 개발 모드에서는 루트 경로에 등록
+if (prod) {
+  app.use(base, ssrMiddleware);
+} else {
+  app.use(ssrMiddleware);
+}
 
 // 서버 시작 전에 render 함수 초기화
 // API는 app.use() 미들웨어에서 직접 처리하므로 별도 초기화가 필요 없습니다.
