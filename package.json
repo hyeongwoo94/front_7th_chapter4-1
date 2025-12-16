@@ -54,6 +54,7 @@
     "vitest": "latest"
   },
   "dependencies": {
+    "express": "^5.2.1",
     "pnpm": "^10.26.0"
   }
 }

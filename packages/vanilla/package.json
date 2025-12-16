@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port 5173",
-    "dev:ssr": "PORT=5174 node server.js",
+    "dev:ssr": "cross-env PORT=5174 node server.js",
     "build:client": "rm -rf ./dist/vanilla && vite build --outDir ./dist/vanilla && cp ./dist/vanilla/index.html ./dist/vanilla/404.html",
     "build:client-for-ssg": "rm -rf ../../dist/vanilla && vite build --outDir ../../dist/vanilla",
     "build:server": "vite build --outDir ./dist/vanilla-ssr --ssr src/main-server.js",
@@ -16,7 +16,7 @@
     "prettier:write": "prettier --write ./src",
     "preview:csr": "vite preview --outDir ./dist/vanilla",
     "preview:csr-with-build": "pnpm run build:client && pnpm run preview:csr",
-    "preview:ssr": "PORT=4174 NODE_ENV=production node server.js",
+    "preview:ssr": "cross-env PORT=4174 NODE_ENV=production node server.js",
     "preview:ssr-with-build": "pnpm run build:without-ssg && pnpm run preview:ssr",
     "preview:ssg": "vite preview --outDir ../../dist/vanilla --port 4178",
     "preview:ssg-with-build": "pnpm run build && pnpm run preview:ssg",
@@ -50,7 +50,8 @@
     "prettier": "^3.4.2",
     "vite": "npm:rolldown-vite@latest",
     "vitest": "latest",
-    "concurrently": "latest"
+    "concurrently": "latest",
+    "cross-env": "^7.0.3"
   },
   "msw": {
     "workerDirectory": [
