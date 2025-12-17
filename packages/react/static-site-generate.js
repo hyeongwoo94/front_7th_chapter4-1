@@ -6,7 +6,7 @@ import { fileURLToPath } from "url";
 process.env.SSG_BUILD = "true";
 
 // MSW 서버 초기화 (SSG 빌드 타임에 fetch를 intercept하기 위해)
-import { server } from "./src/mocks/node.ts";
+import { server } from "./src/mocks/node.js";
 server.listen({ onUnhandledRequest: "bypass" });
 
 // 상품 데이터 및 유틸리티 import

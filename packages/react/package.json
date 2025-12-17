@@ -13,9 +13,9 @@
     "build:client-for-ssg": "rimraf ../../dist/react && vite build --outDir ../../dist/react",
     "build:server": "vite build --outDir ./dist/react-ssr --ssr src/main-server.tsx",
     "build:without-ssg": "pnpm run build:client && npm run build:server",
-    "build:ssg": "pnpm run build:client-for-ssg && node static-site-generate.js",
+    "build:ssg": "pnpm run build:client-for-ssg && tsx static-site-generate.js",
     "build": "npm run build:client && npm run build:server && npm run build:ssg",
-    "preview:csr": "vite preview --outDir ./dist/react --port 4175",
+    "preview:csr": "cross-env NODE_ENV=production vite preview --config vite.config.ts --outDir ./dist/react --base /front_7th_chapter4-1/react/ --port 4175",
     "preview:csr-with-build": "pnpm run build:client && pnpm run preview:csr",
     "preview:ssr": "cross-env PORT=4176 NODE_ENV=production node server.js",
     "preview:ssr-with-build": "pnpm run build:without-ssg && pnpm run preview:ssr",
@@ -55,6 +55,7 @@
     "sirv": "^3.0.0",
     "concurrently": "latest",
     "rimraf": "^6.0.1",
-    "cross-env": "^7.0.3"
+    "cross-env": "^7.0.3",
+    "tsx": "^4.19.2"
   }
 }
