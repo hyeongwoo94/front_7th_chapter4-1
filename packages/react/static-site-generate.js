@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { injectIntoTemplate } from "./src/utils/htmlUtils.js";
 
 // SSG 빌드 환경 변수 설정
 process.env.SSG_BUILD = "true";
@@ -63,45 +64,6 @@ const __dirname = path.dirname(__filename);
 const templatePath = path.join(__dirname, "index.html");
 // 출력 디렉토리
 const outputDir = path.join(__dirname, "../../dist/react");
-
-/**
- * HTML 템플릿에 렌더링된 HTML과 초기 상태 주입
- */
-function injectIntoTemplate(template, { html, initialState, title }) {
-  const initialStateJson = JSON.stringify(initialState);
-  const initialStateScript = `<script>window.__INITIAL_DATA__ = ${initialStateJson};</script>`;
-
-  // replaceAll()을 사용하여 모든 플레이스홀더를 치환 (정규식 사용)
-  let result = template;
-
-  // <!--app-html--> 치환 (모든 발생)
-  result = result.replace(/<!--app-html-->/g, html || '<div id="root"></div>');
-
-  // <!--app-head--> 치환 (모든 발생)
-  result = result.replace(/<!--app-head-->/g, initialStateScript);
-
-  // title 태그 처리
-  const titleTag = `<title>${title || "쇼핑몰"}</title>`;
-
-  // <!--app-title--> 플레이스홀더가 있으면 치환
-  if (result.includes("<!--app-title-->")) {
-    result = result.replace(/<!--app-title-->/g, title || "쇼핑몰");
-  } else {
-    // 기존 title 태그가 있으면 치환
-    if (/<title>.*?<\/title>/.test(result)) {
-      result = result.replace(/<title>.*?<\/title>/, titleTag);
-    } else {
-      // title 태그가 없으면 <!--app-head--> 뒤에 추가
-      result = result.replace(/<!--app-head-->/, `${titleTag}\n  <!--app-head-->`);
-      // 만약 <!--app-head-->가 이미 치환되었다면, <head> 태그 안에 추가
-      if (!result.includes("<!--app-head-->") && result.includes("<head>")) {
-        result = result.replace(/<head>/, `<head>\n  ${titleTag}`);
-      }
-    }
-  }
-
-  return result;
-}
 
 /**
  * SSG: 정적 사이트 생성

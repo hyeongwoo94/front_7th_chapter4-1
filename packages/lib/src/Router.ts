@@ -76,7 +76,9 @@ export class Router<Handler extends (...args: any[]) => any> {
       })
       .replace(/\//g, "\\/");
 
-    const regex = new RegExp(`^${this.#baseUrl}${regexPath}$`);
+    const escapeRegExp = (value: string) => value.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+    const basePattern = this.#baseUrl ? `(?:${escapeRegExp(this.#baseUrl)})?` : "";
+    const regex = new RegExp(`^${basePattern}${regexPath}$`);
 
     this.#routes.set(path, {
       regex,
@@ -109,7 +111,13 @@ export class Router<Handler extends (...args: any[]) => any> {
   push(url: string) {
     try {
       // baseUrl이 없으면 자동으로 붙여줌
-      const fullUrl = url.startsWith(this.#baseUrl) ? url : this.#baseUrl + (url.startsWith("/") ? url : "/" + url);
+      const normalizedUrl = url.startsWith("/") ? url : `/${url}`;
+      const usingBase = this.#baseUrl && window.location.pathname.startsWith(this.#baseUrl);
+      const fullUrl = usingBase
+        ? normalizedUrl.startsWith(this.#baseUrl)
+          ? normalizedUrl
+          : `${this.#baseUrl}${normalizedUrl}`
+        : normalizedUrl;
 
       const prevFullUrl = `${window.location.pathname}${window.location.search}`;
 

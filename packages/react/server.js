@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import sirv from "sirv";
+import { injectIntoTemplate } from "./src/utils/htmlUtils.js";
 // TypeScript 파일을 직접 import할 수 없으므로, main-server.tsx에서 export한 함수 사용
 // 또는 JavaScript로 변환된 파일 사용
 // 일단 server.js에서 직접 구현
@@ -72,9 +73,24 @@ const base = process.env.BASE || (prod ? "/front_7th_chapter4-1/react/" : "/");
 
 const app = express();
 
-// HTML 템플릿 읽기
-const templatePath = path.join(__dirname, "index.html");
-const template = fs.readFileSync(templatePath, "utf-8");
+// HTML 템플릿 읽기 함수 (매 요청마다 최신 템플릿 보장)
+function getTemplate() {
+  let templatePath;
+  if (prod) {
+    // 프로덕션: 빌드된 템플릿 우선, 없으면 원본 사용
+    const builtTemplatePath = path.join(__dirname, "dist/react/index.html");
+    if (fs.existsSync(builtTemplatePath)) {
+      templatePath = builtTemplatePath;
+    } else {
+      templatePath = path.join(__dirname, "index.html");
+    }
+  } else {
+    // 개발: 원본 템플릿 사용
+    templatePath = path.join(__dirname, "index.html");
+  }
+  // 매 요청마다 템플릿을 다시 읽어서 최신 상태 보장
+  return fs.readFileSync(templatePath, "utf-8");
+}
 
 // SSR 렌더링 함수 import (비동기 초기화)
 let render;
@@ -101,8 +117,6 @@ async function initializeRender() {
 // Express JSON 파서 미들웨어 추가 (API 요청 처리 전에)
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// 정적 파일 서빙 설정
 if (prod) {
   // 프로덕션: 빌드된 파일 서빙 (assets 폴더만)
   const distPath = path.join(__dirname, "dist/react");
@@ -151,13 +165,22 @@ if (prod) {
       onNoMatch: (req, res, next) => next(),
     }),
   );
-  // index.html은 SSR로 처리해야 하므로 정적 파일 서빙에서 제외
-  app.use((req, res, next) => {
-    if (req.path === "/" || req.path === "/index.html") {
-      return next(); // SSR 미들웨어로 넘김
-    }
-    next();
-  });
+  // Vite HMR 클라이언트 스크립트 처리
+  app.use(
+    "/@vite",
+    sirv(path.join(__dirname, "node_modules/vite/dist/client"), {
+      dev: true,
+      onNoMatch: (req, res, next) => next(),
+    }),
+  );
+  // Vite React Refresh 처리
+  app.use(
+    "/@react-refresh",
+    sirv(path.join(__dirname, "node_modules/@vitejs/plugin-react/dist/client.js"), {
+      dev: true,
+      onNoMatch: (req, res, next) => next(),
+    }),
+  );
 }
 
 // 모든 라우트에 대해 SSR 처리
@@ -166,7 +189,7 @@ const ssrMiddleware = async (req, res, next) => {
   console.log(`[SSR] ${req.method} ${req.path} - ${req.originalUrl}`);
 
   // 정적 파일 요청은 건너뛰기 (개발 모드용)
-  if (req.path.startsWith("/src/") || req.path.startsWith("/public/")) {
+  if (req.path.startsWith("/src/") || req.path.startsWith("/public/") || req.path.startsWith("/@")) {
     return next();
   }
 
@@ -271,17 +294,44 @@ const ssrMiddleware = async (req, res, next) => {
     const { html: appHtml, initialState, title } = await render(url, query);
     console.log(`[SSR] render 결과: html 길이=${appHtml?.length || 0}, title=${title}`);
 
-    // HTML 템플릿 치환
-    const initialStateJson = JSON.stringify(initialState);
-    const initialStateScript = `<script>window.__INITIAL_DATA__ = ${initialStateJson};</script>`;
+    // 매 요청마다 최신 템플릿 읽기
+    const template = getTemplate();
 
-    let html = template;
-    if (!html.includes("<!--app-html-->")) {
-      console.error("[SSR] 템플릿에 <!--app-html--> 플레이스홀더가 없습니다!");
+    // 템플릿에 플레이스홀더가 있는지 확인
+    if (!template.includes("<!--app-html-->")) {
+      const templatePath = prod
+        ? fs.existsSync(path.join(__dirname, "dist/react/index.html"))
+          ? path.join(__dirname, "dist/react/index.html")
+          : path.join(__dirname, "index.html")
+        : path.join(__dirname, "index.html");
+      throw new Error("템플릿에 <!--app-html--> 플레이스홀더가 없습니다. 템플릿 경로: " + templatePath);
     }
-    html = html.replace("<!--app-html-->", appHtml || '<div id="root"></div>');
-    // <!--app-head-->에 title과 initialState 스크립트 모두 추가
-    html = html.replace("<!--app-head-->", `<title>${title}</title>${initialStateScript}`);
+
+    // 템플릿 디버깅 정보
+    console.log(`[SSR] 템플릿 확인:`);
+    console.log(`[SSR] - <!--app-html--> 포함:`, template.includes("<!--app-html-->"));
+    console.log(`[SSR] - <!--app-head--> 포함:`, template.includes("<!--app-head-->"));
+    console.log(`[SSR] - <!--app-title--> 포함:`, template.includes("<!--app-title-->"));
+    console.log(`[SSR] - 템플릿 길이:`, template.length);
+
+    // injectIntoTemplate 유틸리티 함수 사용 (모든 플레이스홀더 치환 보장)
+    const html = injectIntoTemplate(template, {
+      html: appHtml,
+      initialState,
+      title,
+    });
+
+    // 치환 검증: 플레이스홀더가 남아있으면 에러
+    if (html.includes("<!--app-html-->") || html.includes("<!--app-head-->") || html.includes("<!--app-title-->")) {
+      console.error("[SSR] 플레이스홀더 치환 실패!");
+      console.error("[SSR] - <!--app-html--> 남아있음:", html.includes("<!--app-html-->"));
+      console.error("[SSR] - <!--app-head--> 남아있음:", html.includes("<!--app-head-->"));
+      console.error("[SSR] - <!--app-title--> 남아있음:", html.includes("<!--app-title-->"));
+      console.error("[SSR] - 치환 전 템플릿 일부:", template.substring(0, 500));
+      console.error("[SSR] - 치환 후 HTML 일부:", html.substring(0, 500));
+      throw new Error("플레이스홀더 치환이 완료되지 않았습니다.");
+    }
+
     console.log(`[SSR] HTML 치환 완료`);
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -304,6 +354,7 @@ const ssrMiddleware = async (req, res, next) => {
   }
 };
 
+// SSR 미들웨어를 정적 파일 서빙보다 먼저 등록 (HTML 파일은 SSR로 처리)
 // 프로덕션 모드에서는 base 경로에 SSR 미들웨어 등록
 // 개발 모드에서는 루트 경로에 등록
 if (prod) {
