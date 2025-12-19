@@ -107,6 +107,22 @@ if (prod) {
   );
 }
 
+const itemsJsonPath = path.join(__dirname, "src", "mocks", "items.json");
+
+function loadItemsFromDisk() {
+  try {
+    const raw = fs.readFileSync(itemsJsonPath, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      throw new Error("items.json 형식이 배열이 아닙니다.");
+    }
+    return parsed;
+  } catch (error) {
+    console.error("[Server] items.json 읽기 실패:", error);
+    throw error;
+  }
+}
+
 // 모든 라우트에 대해 SSR 처리 (Express 5.x 호환)
 // 정적 파일이 처리되지 않은 경우에만 SSR 실행
 const ssrMiddleware = async (req, res, next) => {
@@ -131,8 +147,7 @@ const ssrMiddleware = async (req, res, next) => {
     try {
       // items.json 로드 (캐싱)
       if (!global.apiItems) {
-        const { default: items } = await import("./src/mocks/items.json", { with: { type: "json" } });
-        global.apiItems = items;
+        global.apiItems = loadItemsFromDisk();
       }
       const items = global.apiItems;
 
@@ -336,7 +351,7 @@ async function initializeServer() {
   // items.json 미리 로드 (main-server.js에서 사용)
   if (!global.apiItems) {
     try {
-      const { default: items } = await import("./src/mocks/items.json", { with: { type: "json" } });
+      const items = loadItemsFromDisk();
       global.apiItems = items;
       console.log(`[Server] items.json 초기화 완료 (${items.length}개 항목)`);
     } catch (error) {

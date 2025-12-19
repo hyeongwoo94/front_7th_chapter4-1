@@ -9,17 +9,28 @@ process.env.SSG_BUILD = "true";
 import { server } from "./src/mocks/node.js";
 server.listen({ onUnhandledRequest: "bypass" });
 
-// 상품 데이터 및 유틸리티 import
-import items from "./src/mocks/items.json";
 import { render } from "./src/main-server.js";
 import { filterProducts } from "./src/utils/productFilter.js";
 import { injectIntoTemplate } from "./src/utils/htmlUtils.js";
 
-// SSG 빌드 시 global.apiItems 설정 (main-server.js에서 사용)
-global.apiItems = items;
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const itemsPath = path.join(__dirname, "src", "mocks", "items.json");
+
+function loadItems() {
+  try {
+    const raw = fs.readFileSync(itemsPath, "utf-8");
+    return JSON.parse(raw);
+  } catch (error) {
+    console.error("items.json을 읽는 동안 오류 발생:", error);
+    throw error;
+  }
+}
+
+const items = loadItems();
+
+// SSG 빌드 시 global.apiItems 설정 (main-server.js에서 사용)
+global.apiItems = items;
 
 // HTML 템플릿 경로
 const templatePath = path.join(__dirname, "index.html");
